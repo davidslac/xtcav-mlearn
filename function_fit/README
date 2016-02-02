@@ -1,0 +1,5 @@
+I think you need to give a full path to tensorboard
+
+That is tensorboard --logdir /reg/g/psdm/sw/releases/ana-current/SConsTools
+
+

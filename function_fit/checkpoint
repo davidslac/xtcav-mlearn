@@ -1,0 +1,6 @@
+model_checkpoint_path: "train_dir-499"
+all_model_checkpoint_paths: "train_dir-99"
+all_model_checkpoint_paths: "train_dir-199"
+all_model_checkpoint_paths: "train_dir-299"
+all_model_checkpoint_paths: "train_dir-399"
+all_model_checkpoint_paths: "train_dir-499"
