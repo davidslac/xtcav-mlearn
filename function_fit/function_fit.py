@@ -112,11 +112,12 @@ def evaluation(sess, nnetModel, x_input, polyData):
       meanSqRtErrorTest   scalar float32
       y_all          vector, evaluate on all
     """
-    def getSqRtError(nnetModel, x, y):
+    def getSqRtError(nnetModel, x, y, name):
         mod_minus_y = tf.sub(nnetModel, y)
         squareError = tf.pow(mod_minus_y, 2)
         meanErr = tf.reduce_mean(squareError)
-        return sess.run(tf.pow(meanErr,0.5), feed_dict={x_input:x})
+        errOp = tf.pow(meanErr,0.5, name=name)
+        return sess.run(errOp, feed_dict={x_input:x})
 
     x_test = tf_utils.vec2columnMat(polyData.x_test)
     y_test = tf_utils.vec2columnMat(polyData.y_test)
@@ -124,8 +125,10 @@ def evaluation(sess, nnetModel, x_input, polyData):
     y_train = tf_utils.vec2columnMat(polyData.y_train)
     x_all =  tf_utils.vec2columnMat(polyData.x_all)
 
-    trainErr = getSqRtError(nnetModel, x_train, y_train)
-    testErr = getSqRtError(nnetModel, x_test, y_test)
+    trainErr = getSqRtError(nnetModel, x_train, y_train, name='trainErr')
+    testErr = getSqRtError(nnetModel, x_test, y_test, name='testErr')
+    tf.scalar_summary(trainErr.op.name, trainErr)
+    tf.scalar_summary(testErr.op.name, testErr)
     y_all = sess.run(nnetModel, feed_dict={x_input:x_all})
     return trainErr, testErr, y_all
 

@@ -43,7 +43,7 @@ def getNormPenalty(normName):
 def getPolyData(poly_degree=7, numPoints = 300, numTrain = None):
     assert poly_degree > 0, "must have at least 1 root"
     if numTrain is None:
-        numTrain = int(.1 * numPoints)
+        numTrain = max(1,int(.1 * numPoints))
     assert 3*numTrain < numPoints, "numTrain must be < 3*numPoints to produce test/train/cv sets"
     # make a polynomial with the given number of roots, but no root at 0
     poly_roots = list(np.arange(poly_degree + 1) - int(poly_degree//2))
@@ -53,18 +53,18 @@ def getPolyData(poly_degree=7, numPoints = 300, numTrain = None):
 
     polyData = namedtuple("PolyData", "x_all y_all x_train y_train x_test y_test x_cv y_cv")
 
-    polyData.x_all = np.linspace(start = poly_roots[0],
-                                 stop =  poly_roots[-1],
-                                 num = 300)
-    polyData.y_all = polynomial.polyval(polyData.x_all, poly_coeffs)
+    polyData.x_all = vec2columnMat(np.linspace(start = poly_roots[0],
+                                               stop =  poly_roots[-1],
+                                               num = 300))
+    polyData.y_all = polynomial.polyval(polyData.x_all[:], poly_coeffs)
     inds = range(len(polyData.x_all))
     random.shuffle(inds)
-    polyData.x_train = polyData.x_all[inds[0:numTrain]]
-    polyData.y_train = polyData.y_all[inds[0:numTrain]]
-    polyData.x_test = polyData.x_all[inds[numTrain:(2*numTrain)]]
-    polyData.y_test = polyData.y_all[inds[numTrain:(2*numTrain)]]
-    polyData.x_cv = polyData.x_all[inds[(2*numTrain):(3*numTrain)]]
-    polyData.y_cv = polyData.y_all[inds[(2*numTrain):(3*numTrain)]]
+    polyData.x_train = vec2columnMat(polyData.x_all[:][inds[0:numTrain]])
+    polyData.y_train = vec2columnMat(polyData.y_all[:][inds[0:numTrain]])
+    polyData.x_test = vec2columnMat(polyData.x_all[:][inds[numTrain:(2*numTrain)]])
+    polyData.y_test = vec2columnMat(polyData.y_all[:][inds[numTrain:(2*numTrain)]])
+    polyData.x_cv = vec2columnMat(polyData.x_all[:][inds[(2*numTrain):(3*numTrain)]])
+    polyData.y_cv = vec2columnMat(polyData.y_all[:][inds[(2*numTrain):(3*numTrain)]])
     return polyData
 
 def plotPolyData(polyData, plt, figH=None):

@@ -8,13 +8,13 @@ import tf_utils
 import function_fit as ffit
 
 from collections import namedtuple
-#import h5py
 
 FLAGS = namedtuple("Params", 'learning_rate max_steps')
 FLAGS.learning_rate =  0.01 # "initial learning rate"
 FLAGS.max_steps =  500 # 'Numer of steps to run trainer'
 FLAGS.num_eval_updates =  5 # "Number of evaluations to do during training"
 FLAGS.eval_steps =  FLAGS.max_steps//FLAGS.num_eval_updates # 'steps between evaluations'
+FLAGS.inital_save_steps = min(20, FLAGS.eval_steps)
 FLAGS.hidden1 =  10 # 'Number of units in hidden layer 1.'
 FLAGS.hidden2 =  5 # 'Number of units in hidden layer 2.'
 FLAGS.actfn =  'tanh' # 'activation function'
@@ -25,36 +25,48 @@ FLAGS.reg_hidden1 =  FLAGS.reg # "regularization term for hidden layer 1"
 FLAGS.reg_hidden2 =  FLAGS.reg # "regularization term for hidden layer 2"
 FLAGS.reg_output =  FLAGS.reg # "regularization term for linear output"
 FLAGS.train_dir =  'train_dir' # "directory to write training data"
-#FLAGS.output_file = 'training.h5'
 
 def main():
     # get training/test data
     polyData = tf_utils.getPolyData(FLAGS.poly_roots)
-
+    mod = namedtuple('NNetModel', 
+                     ['placeholders',
+                      'inference',
+                      'weightsPenaltyTerms',
+                      'meanSqError',
+                      'loss',
+                      'train_op',
+                      'testSqError'])
+    
+                            
     # Tell TensorFlow that the model will be built into the default Graph.
     with tf.Graph().as_default():
-        mainAfterWithGraph(polyData)
+        mainAfterWithGraph(polyData, mod)
 
-def mainAfterWithGraph(polyData):
+def mainAfterWithGraph(polyData, mod):
     # Generate placeholders for the input and labels
-    x_input = tf.placeholder(tf.float32, shape=(None, 1))
-    y_output = tf.placeholder(tf.float32, shape=(None, 1))
+    placeholder = namedtuple('PlaceHolder', 'x_input y_output')
+    placeholder.x_input = tf.placeholder(tf.float32, shape=(None, 1))
+    placeholder.y_output = tf.placeholder(tf.float32, shape=(None, 1))
+
+    mod.placeholder = placeholder
 
     # Build a Graph that computes predictions from the inference model.
-    nnetModel, weightsPenaltyTerms = ffit.inference(x_input, 
-                                                    FLAGS.hidden1, FLAGS.hidden2, 
-                                                    FLAGS.actfn, FLAGS.regNorm)
+    mod.inference, mod.weightsPenaltyTerms = ffit.inference(mod.placeholder.x_input, 
+                                                           FLAGS.hidden1, FLAGS.hidden2, 
+                                                           FLAGS.actfn, FLAGS.regNorm)
 
     # Add to the Graph the Ops for loss calculation.
-    modelError, modelLoss = ffit.loss(nnetModel, weightsPenaltyTerms,
-                                      [FLAGS.reg_hidden1, FLAGS.reg_hidden2, FLAGS.reg_output],
-                                      y_output)
+    mod.meanSqError, mod.loss = ffit.loss(mod.inference, mod.weightsPenaltyTerms,
+                                          [FLAGS.reg_hidden1, FLAGS.reg_hidden2, FLAGS.reg_output],
+                                          mod.placeholder.y_output)
 
     # Add to the Graph the Ops that calculate and apply gradients.
-    train_op = ffit.training(modelLoss, FLAGS.learning_rate)
+    mod.train_op = ffit.training(mod.loss, FLAGS.learning_rate)
     
     # Build the summary operation based on the TF collection of Summaries.
-    summary_op = tf.merge_all_summaries()
+    mod.train_summary_op = tf.merge_all_summaries()
+
     # Create a saver for writing training checkpoints.
     saver = tf.train.Saver()
 
@@ -70,28 +82,35 @@ def mainAfterWithGraph(polyData):
     summary_writer = tf.train.SummaryWriter(FLAGS.train_dir,
                                             graph_def=sess.graph_def)
 
-    feed_dict = {x_input: tf_utils.vec2columnMat(polyData.x_train),
-                 y_output:tf_utils.vec2columnMat(polyData.y_train)}
+    train_feed_dict = {mod.placeholder.x_input: polyData.x_train,
+                       mod.placeholder.y_output:polyData.y_train}
+
+    test_feed_dict = {mod.placeholder.x_input: polyData.x_test,
+                      mod.placeholder.y_output:polyData.y_test}
+
+    all_feed_dict = {mod.placeholder.x_input: polyData.x_all,
+                     mod.placeholder.y_output:polyData.y_all}
 
     # And then after everything is built, start the training loop.
 #    saver.restore(sess, FLAGS.train_dir)
+
+    
     for step in xrange(FLAGS.max_steps):
-        mainStep(step, x_input, y_output, nnetModel, weightsPenaltyTerms, modelError, modelLoss,
-                 train_op, summary_op, saver, sess, summary_writer, feed_dict, polyData)
+        trainStep(step, mod, saver, sess, summary_writer, train_feed_dict)
+        if step < FLAGS.inital_save_steps:
+            pass
 
 
-def mainStep(step, x_input, y_output, nnetModel, weightsPenaltyTerms, modelError, modelLoss,
-             train_op, summary_op, saver, sess, summary_writer, feed_dict, polyData):
-
+def trainStep(step, mod, saver, sess, summary_writer, feed_dict):
     # Run one step of the model.  The return values are the activations
     # from the `train_op` (which is discarded) and the `loss` Op.  To
     # inspect the values of your Ops or variables, you may include them
     # in the list passed to sess.run() and the value tensors will be
     # returned in the tuple from the call.
-    _, loss_value = sess.run([train_op, modelLoss],
+    _, loss_value = sess.run([mod.train_op, mod.loss],
                              feed_dict=feed_dict)
 
-
+    return
     # Write the summaries and print an overview fairly often.
     if step % FLAGS.eval_steps == 0:
         # Print status to stdout.
