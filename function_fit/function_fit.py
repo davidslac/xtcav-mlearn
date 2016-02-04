@@ -7,10 +7,11 @@ import tensorflow as tf
 import tf_utils
 
 ########### support code - move to library? ###########
-def inference(x_input, hidden1_units, hidden2_units, activation_unit_name='tanh', weightsNorm = 'L2'):
+def inference(mod, x_input, hidden1_units, hidden2_units, activation_unit_name='tanh', weightsNorm = 'L2'):
     '''computes interence model for a 2 layer NN
 
     Args:
+      mod:           model to update, adds attributes
       x_input:       N x 1 vector of input points.
       hidden1_units: makes a 1 x H1 set of weights for hidden layer, and a 
                              1 x H1 set of biases
@@ -21,52 +22,50 @@ def inference(x_input, hidden1_units, hidden2_units, activation_unit_name='tanh'
       weightsNorm:   'L2' or 'L1' to form regularization penalty terms from weights
 
     Output:
-       nnetModel  - the nnetModel that computes inference from x_input
-       weightsPenaltyTerms - a list of three weight penalty terms for regularization,
-                             hidden1, hidden2, then the linear layer
+       mod:   the model passed in with these additional fields:
     '''
     activation_unit = tf_utils.getActivationFunction(activation_unit_name)
     normPenalty = tf_utils.getNormPenalty(weightsNorm)
 
-    weightsPenaltyTerms = []
+    mod.weightsPenaltyTerms = []
 
     #Hidden 1
     with tf.name_scope('hidden1'):
         hiddenShape = [1, hidden1_units]
-        weights = tf.Variable(
+        mod.hidden1_weights = tf.Variable(
             tf.truncated_normal(hiddenShape,
                                 stddev=0.10),
             name='weights')
-        biases = tf.Variable(tf.zeros([hidden1_units]),
-                            name='biases')
-        hidden1 = activation_unit(tf.nn.xw_plus_b(x_input, weights,biases))
-        weightsPenaltyTerms.append(normPenalty(weights, name='l2-weights'))
+        mod.hidden1_biases = tf.Variable(tf.zeros([hidden1_units]),
+                                         name='biases')
+        hidden1 = activation_unit(tf.nn.xw_plus_b(x_input, mod.hidden1_weights, mod.hidden1_biases))
+        mod.weightsPenaltyTerms.append(normPenalty(mod.hidden1_weights, name='l2-weights'))
 
     #Hidden 2
     with tf.name_scope('hidden2'):
         hiddenShape = [hidden1_units, hidden2_units]
-        weights = tf.Variable(
+        mod.hidden2_weights = tf.Variable(
             tf.truncated_normal(hiddenShape,
                                 stddev=0.1),
             name='weights')
-        biases = tf.Variable(tf.zeros([hidden2_units]),
+        mod.hidden2_biases = tf.Variable(tf.zeros([hidden2_units]),
                              name='biases')
-        hidden2 = activation_unit(tf.nn.xw_plus_b(hidden1, weights, biases))
-        weightsPenaltyTerms.append(normPenalty(weights, name='l2-weights'))
+        hidden2 = activation_unit(tf.nn.xw_plus_b(hidden1, mod.hidden2_weights, mod.hidden2_biases))
+        mod.weightsPenaltyTerms.append(normPenalty(mod.hidden2_weights, name='l2-weights'))
 
     # Linear
     with tf.name_scope('linear'):
-        weights = tf.Variable(
+        mod.linear_weights = tf.Variable(
             tf.truncated_normal([hidden2_units, 1],
                                 stddev=0.1),
             name='weights')
-        biases = tf.Variable(tf.zeros([1]), name='biases')
-        nnetModel = tf.nn.xw_plus_b(hidden2, weights, biases)
+        mod.linear_bias = tf.Variable(tf.zeros([1]), name='biases')
+        mod.nnetModel = tf.nn.xw_plus_b(hidden2, mod.linear_weights, mod.linear_bias)
+
         # do you want to put the linear output layer into the regularization term?
-        weightsPenaltyTerms.append(normPenalty(weights, name='l2-weights'))
-
-    return nnetModel, weightsPenaltyTerms
-
+        mod.weightsPenaltyTerms.append(normPenalty(mod.linear_weights, name='l2-weights'))
+        
+    return mod
 
 
 def loss(nnetModel, weightPenTermList, regHyperParamList, labels):
