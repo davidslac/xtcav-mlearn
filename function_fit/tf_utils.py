@@ -26,11 +26,11 @@ def getActivationFunction(name):
 
 
 def getNormPenalty(normName):
-    def l2pen(weights, name):
-        return tf.mul(1.0/2.0, tf.reduce_sum(weights), name=name)
+    def l2pen(tensor, name):
+        return tf.mul(0.5, tf.reduce_sum(tf.square(tensor)), name=name)
 
-    def l1pen(weights, name):
-        return tf.reduce_sum(tf.abs(weights), name=name)
+    def l1pen(tensor, name):
+        return tf.reduce_sum(tf.abs(tensor), name=name)
         
     normName2foo = {'L1':l1pen, 'L2':l2pen}
 
@@ -39,47 +39,68 @@ def getNormPenalty(normName):
     
     return normName2foo[normName]
 
-    
-def getPolyData(poly_degree=7, numPoints = 300, numTrain = None):
-    assert poly_degree > 0, "must have at least 1 root"
-    if numTrain is None:
-        numTrain = max(1,int(.1 * numPoints))
-    assert 3*numTrain < numPoints, "numTrain must be < 3*numPoints to produce test/train/cv sets"
-    # make a polynomial with the given number of roots, but no root at 0
-    poly_roots = list(np.arange(poly_degree + 1) - int(poly_degree//2))
-    poly_roots.remove(0)
-    poly_roots = np.array(poly_roots)
-    poly_coeffs = polynomial.polyfromroots(poly_roots)
+def getFlattendGrad(sess, grads_and_vars, feed_dict):
+    grads = sess.run([tv[0] for tv in grads_and_vars], feed_dict=feed_dict)
+    grads = [grad.flatten() for grad in grads]
+    return np.concatenate(grads)    
 
-    polyData = namedtuple("PolyData", "x_all y_all x_train y_train x_test y_test x_cv y_cv")
+class FunctionData(object):
+    def __init__(self, poly_degree=7, numPoints = 300, numTrain = None, h5=None):
+        if h5 is not None:
+            self.h5read(h5)
+            return
+        assert poly_degree > 0, "must have at least 1 root"
+        if numTrain is None:
+            numTrain = max(1,int(.1 * numPoints))
+        assert 3*numTrain < numPoints, "numTrain must be < 3*numPoints to produce test/train/cv sets"
+        # make a polynomial with the given number of roots, but no root at 0
+        poly_roots = list(np.arange(poly_degree + 1) - int(poly_degree//2))
+        poly_roots.remove(0)
+        poly_roots = np.array(poly_roots)
+        poly_coeffs = polynomial.polyfromroots(poly_roots)
 
-    polyData.x_all = vec2columnMat(np.linspace(start = poly_roots[0],
-                                               stop =  poly_roots[-1],
-                                               num = 300))
-    polyData.y_all = polynomial.polyval(polyData.x_all[:], poly_coeffs)
-    inds = range(len(polyData.x_all))
-    random.shuffle(inds)
-    polyData.x_train = vec2columnMat(polyData.x_all[:][inds[0:numTrain]])
-    polyData.y_train = vec2columnMat(polyData.y_all[:][inds[0:numTrain]])
-    polyData.x_test = vec2columnMat(polyData.x_all[:][inds[numTrain:(2*numTrain)]])
-    polyData.y_test = vec2columnMat(polyData.y_all[:][inds[numTrain:(2*numTrain)]])
-    polyData.x_cv = vec2columnMat(polyData.x_all[:][inds[(2*numTrain):(3*numTrain)]])
-    polyData.y_cv = vec2columnMat(polyData.y_all[:][inds[(2*numTrain):(3*numTrain)]])
-    return polyData
+        self.x_all = vec2columnMat(np.linspace(start = poly_roots[0],
+                                                   stop =  poly_roots[-1],
+                                                   num = 300))
+        self.y_all = polynomial.polyval(self.x_all[:], poly_coeffs)
+        inds = range(len(self.x_all))
+        random.shuffle(inds)
+        self.x_train = vec2columnMat(self.x_all[:][inds[0:numTrain]])
+        self.y_train = vec2columnMat(self.y_all[:][inds[0:numTrain]])
+        self.x_test = vec2columnMat(self.x_all[:][inds[numTrain:(2*numTrain)]])
+        self.y_test = vec2columnMat(self.y_all[:][inds[numTrain:(2*numTrain)]])
+        self.x_cv = vec2columnMat(self.x_all[:][inds[(2*numTrain):(3*numTrain)]])
+        self.y_cv = vec2columnMat(self.y_all[:][inds[(2*numTrain):(3*numTrain)]])
 
-def plotPolyData(polyData, plt, figH=None):
-    if figH is None:
-        plt.figure()
-    else:
-        plt.figure(figH)
+    def h5write(self, h5, groupName='FunctionData'):
+        gr = h5.create_group(groupName)
+        gr['x_all'] = self.x_all
+        gr['y_all'] = self.y_all
+        gr['x_train'] = self.x_train
+        gr['y_train'] = self.y_train
+        gr['x_test'] = self.x_test
+        gr['y_test'] = self.y_test
+        gr['x_cv'] = self.x_cv
+        gr['y_cv'] = self.y_cv
 
-    plt.plot(polyData.x_all, polyData.y_all, label='all')
-    plt.plot(polyData.x_train, polyData.y_train, '*', label='train')
-    plt.plot(polyData.x_test, polyData.y_test, 'o', label='test')
-    plt.legend()
-    plt.show()
+    def h5read(self, h5, groupName='FunctionData'):
+        gr = h5[groupName]
+        self.x_all = gr['x_all'] 
+        self.y_all = gr['y_all'] 
+        self.x_train = gr['x_train'] 
+        self.y_train = gr['y_train'] 
+        self.x_test = gr['x_test'] 
+        self.y_test = gr['y_test'] 
+        self.x_cv = gr['x_cv'] 
+        self.y_cv = gr['y_cv'] 
+        
+    def plot(self, plt):
+        plt.plot(self.x_all, self.y_all, label='all')
+        plt.plot(self.x_train, self.y_train, '*', label='train')
+        plt.plot(self.x_test, self.y_test, 'o', label='test')
+        plt.legend()
 
 if __name__ == '__main__':
-    polyData = getPolyData(5)
+    functionData = getFunctionData(5)
     import matplotlib.pyplot as plt
-    plotPolyData(polyData, plt)
+    plotFunctionData(functionData, plt)

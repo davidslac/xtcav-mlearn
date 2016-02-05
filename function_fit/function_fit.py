@@ -27,61 +27,47 @@ def inference(mod, x_input, hidden1_units, hidden2_units, activation_unit_name='
     activation_unit = tf_utils.getActivationFunction(activation_unit_name)
     normPenalty = tf_utils.getNormPenalty(weightsNorm)
 
-    mod.weightsPenaltyTerms = []
+    mod.W_regterms = []
 
     #Hidden 1
-    with tf.name_scope('hidden1'):
-        hiddenShape = [1, hidden1_units]
-        mod.hidden1_weights = tf.Variable(
-            tf.truncated_normal(hiddenShape,
-                                stddev=0.10),
-            name='weights')
-        mod.hidden1_biases = tf.Variable(tf.zeros([hidden1_units]),
-                                         name='biases')
-        hidden1 = activation_unit(tf.nn.xw_plus_b(x_input, mod.hidden1_weights, mod.hidden1_biases))
-        mod.weightsPenaltyTerms.append(normPenalty(mod.hidden1_weights, name='l2-weights'))
+    hiddenShape1 = [1, hidden1_units]
+    mod.H1_W = tf.Variable(tf.truncated_normal(hiddenShape1,stddev=0.10), name='H1_W')
+    mod.H1_B = tf.Variable(tf.zeros([hidden1_units]), name='H1_B')
+    mod.H1_O = activation_unit(tf.nn.xw_plus_b(x_input, mod.H1_W, mod.H1_B))
+    mod.W_regterms.append(normPenalty(mod.H1_W, name='H1_W_regterm'))
 
     #Hidden 2
-    with tf.name_scope('hidden2'):
-        hiddenShape = [hidden1_units, hidden2_units]
-        mod.hidden2_weights = tf.Variable(
-            tf.truncated_normal(hiddenShape,
-                                stddev=0.1),
-            name='weights')
-        mod.hidden2_biases = tf.Variable(tf.zeros([hidden2_units]),
-                             name='biases')
-        hidden2 = activation_unit(tf.nn.xw_plus_b(hidden1, mod.hidden2_weights, mod.hidden2_biases))
-        mod.weightsPenaltyTerms.append(normPenalty(mod.hidden2_weights, name='l2-weights'))
+    hiddenShape2 = [hidden1_units, hidden2_units]
+    mod.H2_W = tf.Variable(tf.truncated_normal(hiddenShape2, stddev=0.1), name='H2_W')
+    mod.H2_B = tf.Variable(tf.zeros([hidden2_units]), name='H2_B')
+    mod.H2_O = activation_unit(tf.nn.xw_plus_b(mod.H1_O, mod.H2_W, mod.H2_B))
+    mod.W_regterms.append(normPenalty(mod.H2_W, name='H2_W_regterm'))
 
     # Linear
-    with tf.name_scope('linear'):
-        mod.linear_weights = tf.Variable(
-            tf.truncated_normal([hidden2_units, 1],
-                                stddev=0.1),
-            name='weights')
-        mod.linear_bias = tf.Variable(tf.zeros([1]), name='biases')
-        mod.nnetModel = tf.nn.xw_plus_b(hidden2, mod.linear_weights, mod.linear_bias)
+    mod.L_W = tf.Variable(tf.truncated_normal([hidden2_units, 1], stddev=0.1), name='L_W')
+    mod.L_B = tf.Variable(tf.zeros([1]), name='L_B')
+    mod.nnetModel = tf.nn.xw_plus_b(mod.H2_O, mod.L_W, mod.L_B)
 
-        # do you want to put the linear output layer into the regularization term?
-        mod.weightsPenaltyTerms.append(normPenalty(mod.linear_weights, name='l2-weights'))
+    # do you want to put the linear output layer into the regularization term?
+    mod.W_regterms.append(normPenalty(mod.L_W, name='L_W_regtrem'))
         
     return mod
 
 
-def loss(nnetModel, weightPenTermList, regHyperParamList, labels):
-    modelError = tf.reduce_mean(tf.pow(tf.sub(nnetModel,labels),2), name='model-error')
+def loss(nnetModel, W_regterms, regFactors, labels):
+    modelError = tf.reduce_mean(tf.square(tf.sub(nnetModel,labels)), name='modelError')
     # make scalar term
     regularizationTerm = tf.Variable(tf.zeros([], dtype=np.float32), name='regterm')
-    if isinstance(regHyperParamList, float) or isinstance(regHyperParamList, int):
-        regHyperParamList = [regHyperParamList for w in weightPenTermList]
-    regHyperParamList = np.array(regHyperParamList).astype(np.float32)
-    for wT, hyperParam in zip(weightPenTermList, regHyperParamList):
-        regularizationTerm += tf.mul(hyperParam, wT)
+    if isinstance(regFactors, float) or isinstance(regFactors, int):
+        regFactors= [regFactors for w in W_regterms]
+    regFactors = np.array(regFactors).astype(np.float32)
+    for wT, regFact in zip(W_regterms, regFactors):
+        regularizationTerm += tf.mul(regFact, wT)
     modelLoss = tf.add(modelError, regularizationTerm, name='loss')
     return modelError, modelLoss
 
 
-def training(loss, learning_rate):
+def training(mod, loss, learning_rate):
     # http://stackoverflow.com/questions/35119109/tensorflow-scalar-summary-tags-name-exception
     # this has created problems, for scalar_summary, the shape of the name has to match the
     # shape of the item that we are viewing. If loss involves a vector term, i.e
@@ -91,43 +77,21 @@ def training(loss, learning_rate):
     # tf.scalar_summary([loss.op.name], loss)
 
     # I think what we really want is a scalar, so be more careful with defining regTerm
-    tf.scalar_summary(loss.op.name, loss)
+#    tf.scalar_summary(loss.op.name, loss)
+
     # Create the gradient descent optimizer with the given learning rate.
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+    mod.optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+
     # Create a variable to track the global step.
-    global_step = tf.Variable(0, name='global_step', trainable=False)
+    mod.global_step = tf.Variable(0, name='global_step', trainable=False)
     # Use the optimizer to apply the gradients that minimize the loss
     # (and also increment the global step counter) as a single training step.
-    train_op = optimizer.minimize(loss, global_step=global_step)
-    return train_op
+#    mod.train_op = mod.optimizer.minimize(loss, global_step=mod.global_step)
+
+    # break out the minimization so that we can see 
+    # https://www.tensorflow.org/versions/master/api_docs/python/train.html#Optimizer.minimize
+    mod.grads_and_vars = mod.optimizer.compute_gradients(loss)
+    mod.train_op = mod.optimizer.apply_gradients(mod.grads_and_vars)
+    return mod
    
-def evaluation(sess, nnetModel, x_input, polyData):
-    """Evaluate the model on the function data
-    Args:
-      nnetModel: tensor that takes x_input, produces y_output
-      functionData: has x_test, y_test, train and all vectors
-    Returns:
-      meanSqRtErrorTrain  scalar float32 tensor 
-      meanSqRtErrorTest   scalar float32
-      y_all          vector, evaluate on all
-    """
-    def getSqRtError(nnetModel, x, y, name):
-        mod_minus_y = tf.sub(nnetModel, y)
-        squareError = tf.pow(mod_minus_y, 2)
-        meanErr = tf.reduce_mean(squareError)
-        errOp = tf.pow(meanErr,0.5, name=name)
-        return sess.run(errOp, feed_dict={x_input:x})
-
-    x_test = tf_utils.vec2columnMat(polyData.x_test)
-    y_test = tf_utils.vec2columnMat(polyData.y_test)
-    x_train = tf_utils.vec2columnMat(polyData.x_train)
-    y_train = tf_utils.vec2columnMat(polyData.y_train)
-    x_all =  tf_utils.vec2columnMat(polyData.x_all)
-
-    trainErr = getSqRtError(nnetModel, x_train, y_train, name='trainErr')
-    testErr = getSqRtError(nnetModel, x_test, y_test, name='testErr')
-    tf.scalar_summary(trainErr.op.name, trainErr)
-    tf.scalar_summary(testErr.op.name, testErr)
-    y_all = sess.run(nnetModel, feed_dict={x_input:x_all})
-    return trainErr, testErr, y_all
 

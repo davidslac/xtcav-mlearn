@@ -22,10 +22,10 @@ class MyTest(unittest.TestCase):
   def tearDown(self):
     pass
 
-  def test_polyData(self):
-    polyData = tf_utils.getPolyData(poly_degree=3, numPoints=20 )
-    print("%s" % polyData.x_all[0:3])
-    print("%s" % polyData.y_all[0:3])
+  def test_functionData(self):
+    functionData = tf_utils.FunctionData(poly_degree=3, numPoints=20 )
+    print("%s" % functionData.x_all[0:3])
+    print("%s" % functionData.y_all[0:3])
 
   def test_inference(self):
     nnet, weightTerms = function_fit.inference(self.x, self.hidden1, self.hidden2)

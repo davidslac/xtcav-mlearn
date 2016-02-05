@@ -88,11 +88,7 @@ class TensorFlowH5Writer(object):
         if name in self.h5.keys():
             gr = self.h5[name]
         else:
-            try:
-                gr = self.h5.create_group(name)
-            except ValueError:
-                import IPython
-                IPython.embed()
+            gr = self.h5.create_group(name)
                 
             gr.create_dataset('step', (0,), dtype='i4', 
                               chunks=(1000,), maxshape=(None,))
@@ -104,7 +100,7 @@ class TensorFlowH5Writer(object):
         return gr
 
 ###################################################    
-class TensorFlowH5Plotter(object):
+class TensorFlowH5(object):
     def __init__(self, fname, plt=None):
         self.fname = fname
         self.h5 = h5py.File(fname, 'r')
@@ -119,6 +115,32 @@ class TensorFlowH5Plotter(object):
             self.plt.plot(step, data, label=name)
         self.plt.xlabel('step')
         self.plt.legend()
+
+    def histogram(self, names):
+        dataToHist = []
+        for name in names:
+            steps = self.h5[name]['step'][:]
+            try:
+                data  = self.h5[name]['data'][len(steps)-1,:].flatten()
+            except:
+                data = self.h5[name]['data'][len(steps)-1]
+            dataToHist.append(data)
+        dataToHist = np.concatenate(dataToHist)
+        self.plt.hist(dataToHist)
+
+    def curveFamily(self, x, name):
+        data = self.h5[name]['data'][:]
+        factor = .8
+        colors = [1.0]
+        [colors.insert(0, factor*colors[0]) for k in range(len(data)-1)]
+        colors = [min(0.9, 1.0-color) for color in colors]
+        for ii,color in enumerate(colors):
+            curve = data[ii,:]
+            colorStr = '%.2f' % color
+            print(colorStr)
+            self.plt.plot(x, curve, color=colorStr)
+        self.plt.plot(x,data[0,:], 'y', label='initial')
+        self.plt.plot(x,data[len(data)-1,:], 'k', label='last')
 
     def singleInputWeightBiases(self, weights, biases, steps='latest'):
         assert steps == 'latest'
