@@ -25,19 +25,21 @@ class Bag(object):
 
 
 FLAGS = Bag()
-FLAGS.learning_rate =  0.005 # "initial learning rate"
+FLAGS.learning_rate =  0.0005 # "initial learning rate"
 FLAGS.max_steps =  5000 # 'Numer of steps to run trainer'
 FLAGS.num_eval_updates =  20 # "Number of evaluations to do during training"
 FLAGS.eval_steps =  FLAGS.max_steps//FLAGS.num_eval_updates # 'steps between evaluations'
-FLAGS.hidden1 =  200 # 'Number of units in hidden layer 1.'
-FLAGS.hidden2 =  200 # 'Number of units in hidden layer 2.'
-FLAGS.actfn =  'sigmoid' # 'activation function - one of tanh, sigmoid, softplus relu relu6
-FLAGS.regNorm =  'L2' # 'regularization norm function'
+FLAGS.LayerNodes = (200,200)
+FLAGS.reg = (0.01,0.01)
+#FLAGS.hidden1 =  200 # 'Number of units in hidden layer 1.'
+#FLAGS.hidden2 =  200 # 'Number of units in hidden layer 2.'
+FLAGS.actfn =  'relu' # 'activation function - one of tanh, sigmoid, softplus relu relu6
+FLAGS.regNorm =  'L1' # 'regularization norm function'
 FLAGS.poly_roots =  7 # 'Number of polynomial roots.'
-FLAGS.reg = 0.01
-FLAGS.reg_hidden1 =  FLAGS.reg # "regularization term for hidden layer 1"
-FLAGS.reg_hidden2 =  FLAGS.reg # "regularization term for hidden layer 2"
-FLAGS.reg_output =  0.0 #FLAGS.reg # "regularization term for linear output"
+#FLAGS.reg = 0.01
+#FLAGS.reg_hidden1 =  FLAGS.reg # "regularization term for hidden layer 1"
+#FLAGS.reg_hidden2 =  FLAGS.reg # "regularization term for hidden layer 2"
+#FLAGS.reg_output =  0.0 #FLAGS.reg # "regularization term for linear output"
 FLAGS.train_dir =  'train_dir' # "directory to write training data"
 FLAGS.summaryfile = 'train_dir/run_summary.h5'
 FLAGS.numberCores = 4
@@ -57,12 +59,11 @@ def mainAfterWithGraph(functionData, mod):
     mod.y_output = tf.placeholder(tf.float32, shape=(None, 1))
 
     # Build a Graph that computes predictions from the inference model.
-    mod = ffit.inference(mod, mod.x_input, FLAGS.hidden1, FLAGS.hidden2, 
+    mod = ffit.inference(mod, mod.x_input, FLAGS.LayerNodes,
                    FLAGS.actfn, FLAGS.regNorm)
 
     # Add to the Graph the Ops for loss calculation.
-    mod.modelError, mod.loss = ffit.loss(mod.nnetModel, mod.W_regterms,
-                                         [FLAGS.reg_hidden1, FLAGS.reg_hidden2, FLAGS.reg_output],
+    mod.modelError, mod.loss = ffit.loss(mod.nnetModel, mod.W_regterms, FLAGS.reg,
                                          mod.y_output)
 
     # Add to the Graph the Ops that calculate and apply gradients.
@@ -117,7 +118,6 @@ def trainStep(step, mod, sess, h5out, train_feed_dict, test_feed_dict, all_feed_
     # returned in the tuple from the call.
     _, trainLoss = sess.run([mod.train_op, mod.loss],
                             feed_dict=train_feed_dict)
-
     # Write the summaries and print an overview fairly often.
     if step % FLAGS.eval_steps == 0:
         trainAvgErr = sess.run(mod.modelError, feed_dict=train_feed_dict)
@@ -136,18 +136,13 @@ def trainStep(step, mod, sess, h5out, train_feed_dict, test_feed_dict, all_feed_
         trainFunction = sess.run(mod.nnetModel, feed_dict=all_feed_dict)
         h5out.addNumpyArrays(step, trainFunction, ['trainFunction'])
 
-        h5out.addTensors(sess, step, [mod.H1_W, 
-                                      mod.H1_B, 
-                                      mod.H2_W,
-                                      mod.H2_B,
-                                      mod.L_W, 
-                                      mod.L_B],
-                                     ['H1_W', 
-                                      'H1_B', 
-                                      'H2_W',
-                                      'H2_B',
-                                      'L_W', 
-                                      'L_B'])
+        modelParamNames = []
+        for layer in range(1,len(FLAGS.LayerNodes)+1):
+            modelParamNames.append('H%02.2d_W' % layer)
+            modelParamNames.append('H%02.2d_B' % layer)
+        modelParamNames.extend(['L_W', 'L_B'])
+        modelParams = [getattr(mod, name) for name in modelParamNames]
+        h5out.addTensors(sess, step, modelParams, modelParamNames)
         # Print status to stdout.
         print('Step %d: loss = %.2f trainErr=%.2f testErr=%.2f' % (step, trainLoss, trainAvgErr, testAvgErr))
         # Update the events file.
@@ -184,22 +179,22 @@ def plotSummaryFile(fname):
     plt.title('train/test/loss')
 
     plt.subplot(2,3,2)
-    h5plt.singleInputWeightBiases('H1_W', 'H1_B')
-    plt.title('scatter plot of hidden1 weights/biases')
+    if len(FLAGS.LayerNodes)>0:
+        h5plt.singleInputWeightBiases('H01_W', 'H01_B')
+        plt.title('scatter plot of hidden1 weights/biases')
+    else:
+        plt.title("model is linear. No scatter plot of H1")
 
     plt.subplot(2,3,3)
-    h5plt.histogram(['H1_W', 'H1_B',
-                     'H2_W', 'H2_B',
-                     'L_W','L_B'])
-    plt.title('scatter plot of weights/outputs/biases')
+    paramW = ['H%02.2d_W' % layer for layer in range(1,len(FLAGS.LayerNodes)+1)]
+    paramB = ['H%02.2d_B' % layer for layer in range(1,len(FLAGS.LayerNodes)+1)]
+    params = paramW + paramB
+    h5plt.histogram(params + ['L_W','L_B'])
+    plt.title('histogram of  weights/biases, hidden and linear output layer')
     
     plt.subplot(2,3,4)
     h5plt.scalarSummary(['grad_mag'])
     plt.title('magnitude of gradient')
-
-    plt.subplot(2,3,5)
-    h5plt.scalarSummary(['grad_cos'])
-    plt.title('cosine of gradient between step interval')
 
     plt.subplot(2,3,5)
     h5plt.scalarSummary(['grad_cos'])
@@ -214,5 +209,5 @@ def plotSummaryFile(fname):
     plt.show()
 
 if __name__ == '__main__':
-    main()
+#    main()
     plotSummaryFile(FLAGS.summaryfile)

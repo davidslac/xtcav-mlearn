@@ -130,14 +130,10 @@ class TensorFlowH5(object):
 
     def curveFamily(self, x, name):
         data = self.h5[name]['data'][:]
-        factor = .8
-        colors = [1.0]
-        [colors.insert(0, factor*colors[0]) for k in range(len(data)-1)]
-        colors = [min(0.9, 1.0-color) for color in colors]
+        colors = np.linspace(0.8, 0.0, len(data))
         for ii,color in enumerate(colors):
             curve = data[ii,:]
             colorStr = '%.2f' % color
-            print(colorStr)
             self.plt.plot(x, curve, color=colorStr)
         self.plt.plot(x,data[0,:], 'y', label='initial')
         self.plt.plot(x,data[len(data)-1,:], 'k', label='last')

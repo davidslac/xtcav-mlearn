@@ -7,17 +7,13 @@ import tensorflow as tf
 import tf_utils
 
 ########### support code - move to library? ###########
-def inference(mod, x_input, hidden1_units, hidden2_units, activation_unit_name='tanh', weightsNorm = 'L2'):
-    '''computes interence model for a 2 layer NN
+def inference(mod, x_input, layerNodes, activation_unit_name='tanh', weightsNorm = 'L2', stddev=0.1):
+    '''computes interence model for a N layer NN that fits function, a 1D -> 1D function
 
     Args:
       mod:           model to update, adds attributes
       x_input:       N x 1 vector of input points.
-      hidden1_units: makes a 1 x H1 set of weights for hidden layer, and a 
-                             1 x H1 set of biases
-      hidden2_units: makes a H1 x H2 set of weights for layer 2, and a 
-                             1 X H2 set of biases
-                     Then a final H2 x 1 set of weights for linear layer, and one bias
+      layerNodes:    list of number of hidden units.
       activation_unit_name: activation function for hidden layer connections
       weightsNorm:   'L2' or 'L1' to form regularization penalty terms from weights
 
@@ -28,29 +24,33 @@ def inference(mod, x_input, hidden1_units, hidden2_units, activation_unit_name='
     normPenalty = tf_utils.getNormPenalty(weightsNorm)
 
     mod.W_regterms = []
+    previousHiddenUnits = 1
+    prevUnits = x_input
 
-    #Hidden 1
-    hiddenShape1 = [1, hidden1_units]
-    mod.H1_W = tf.Variable(tf.truncated_normal(hiddenShape1,stddev=0.10), name='H1_W')
-    mod.H1_B = tf.Variable(tf.zeros([hidden1_units]), name='H1_B')
-    mod.H1_O = activation_unit(tf.nn.xw_plus_b(x_input, mod.H1_W, mod.H1_B))
-    mod.W_regterms.append(normPenalty(mod.H1_W, name='H1_W_regterm'))
-
-    #Hidden 2
-    hiddenShape2 = [hidden1_units, hidden2_units]
-    mod.H2_W = tf.Variable(tf.truncated_normal(hiddenShape2, stddev=0.1), name='H2_W')
-    mod.H2_B = tf.Variable(tf.zeros([hidden2_units]), name='H2_B')
-    mod.H2_O = activation_unit(tf.nn.xw_plus_b(mod.H1_O, mod.H2_W, mod.H2_B))
-    mod.W_regterms.append(normPenalty(mod.H2_W, name='H2_W_regterm'))
+    # note: this loop won't execute for a linear model:
+    for idx,hiddenUnits in enumerate(layerNodes):
+        layerNumber = idx+1
+        hiddenShape = [previousHiddenUnits, hiddenUnits]
+        nameW = 'H%02d_W' % layerNumber
+        nameB = 'H%02d_B' % layerNumber
+        nameU = 'H%02d_U' % layerNumber
+        nameReg = 'H%02d_W_regterm' % layerNumber
+        Weights = tf.Variable(tf.truncated_normal(hiddenShape,stddev=stddev), name=nameW)
+        regW = normPenalty(Weights, name=nameReg)
+        Bias = tf.Variable(tf.zeros([hiddenUnits]), name=nameB)
+        Units = activation_unit(tf.nn.xw_plus_b(prevUnits, Weights, Bias))
+        setattr(mod,nameW,Weights)
+        setattr(mod,nameB,Bias)
+        setattr(mod,nameU,Units)
+        mod.W_regterms.append(regW)
+        previousHiddenUnits = hiddenUnits
+        prevUnits = Units
 
     # Linear
-    mod.L_W = tf.Variable(tf.truncated_normal([hidden2_units, 1], stddev=0.1), name='L_W')
+    mod.L_W = tf.Variable(tf.truncated_normal([previousHiddenUnits, 1], stddev=stddev), name='L_W')
     mod.L_B = tf.Variable(tf.zeros([1]), name='L_B')
-    mod.nnetModel = tf.nn.xw_plus_b(mod.H2_O, mod.L_W, mod.L_B)
+    mod.nnetModel = tf.nn.xw_plus_b(prevUnits, mod.L_W, mod.L_B)
 
-    # do you want to put the linear output layer into the regularization term?
-    mod.W_regterms.append(normPenalty(mod.L_W, name='L_W_regtrem'))
-        
     return mod
 
 
@@ -58,9 +58,8 @@ def loss(nnetModel, W_regterms, regFactors, labels):
     modelError = tf.reduce_mean(tf.square(tf.sub(nnetModel,labels)), name='modelError')
     # make scalar term
     regularizationTerm = tf.Variable(tf.zeros([], dtype=np.float32), name='regterm')
-    if isinstance(regFactors, float) or isinstance(regFactors, int):
-        regFactors= [regFactors for w in W_regterms]
     regFactors = np.array(regFactors).astype(np.float32)
+    assert len(regFactors) >= len(W_regterms), "to few regFactors for %d regterms" % len(W_regterms)
     for wT, regFact in zip(W_regterms, regFactors):
         regularizationTerm += tf.mul(regFact, wT)
     modelLoss = tf.add(modelError, regularizationTerm, name='loss')
